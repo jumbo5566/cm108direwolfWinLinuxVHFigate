@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>APRS Igate Tools</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    
+    <!-- 配置Tailwind自定义颜色和字体 -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#165DFF',
+                        secondary: '#36CFC9',
+                        accent: '#722ED1',
+                        dark: '#1D2129',
+                        light: '#F2F3F5'
+                    },
+                    fontFamily: {
+                        inter: ['Inter', 'system-ui', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .content-auto {
+                content-visibility: auto;
+            }
+            .card-shadow {
+                box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.1);
+            }
+            .input-focus {
+                @apply focus:ring-2 focus:ring-primary/50 focus:border-primary;
+            }
+            .btn-effect {
+                @apply transition-all duration-300 hover:shadow-lg transform hover:-translate-y-0.5;
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 font-inter text-dark min-h-screen">
+    <div class="container mx-auto px-4 py-8 max-w-5xl">
+        <!-- 头部 -->
+        <header class="mb-10 text-center">
+            <h1 class="text-[clamp(1.8rem,5vw,2.8rem)] font-bold text-primary mb-3 flex items-center justify-center">
+                <i class="fa fa-walkie-talkie mr-3 text-accent"></i>
+                APRS Igate Tools
+            </h1>
+            <p class="text-gray-600 max-w-2xl mx-auto">Set the SR-FRS-1WU frequency, CTCSS parameters, and generate AT commands to send to the module.</p>
+        </header>
+        
+        <div class="grid md:grid-cols-5 gap-6">
+            <!-- 左侧参数设置区域 -->
+            <div class="md:col-span-3 bg-white rounded-xl p-6 card-shadow">
+                <h2 class="text-xl font-semibold mb-5 flex items-center">
+                    <i class="fa fa-sliders mr-2 text-primary"></i>SR110V SETTING
+                </h2>
+                
+                <form id="radioForm" class="space-y-5">
+                    <!-- 频段设置 -->
+                    <div class="grid md:grid-cols-2 gap-5">
+                        <div>
+                            <label for="band" class="block text-sm font-medium text-gray-700 mb-1">Bandwidth</label>
+                            <select id="band" name="band" class="w-full px-4 py-2 border border-gray-300 rounded-lg input-focus">
+                                <option value="0">0 (12.5K)</option>
+                                <option value="1">1 (25K)</option>
+                            </select>
+                        </div>
+                        
+                        <div>
+                            <label for="param2" class="block text-sm font-medium text-gray-700 mb-1">SQL</label>
+                            <select id="param2" name="param2" class="w-full px-4 py-2 border border-gray-300 rounded-lg input-focus">
+                                <option value="1">1</option>
+                                <option value="4">4</option>
+                                <option value="2">2</option>
+                                <option value="3">3</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <!-- 频率设置 -->
+                    <div class="space-y-4">
+                        <div>
+                            <label for="tx_freq" class="block text-sm font-medium text-gray-700 mb-1">TX Frequency, MHz</label>
+                            <input type="number" id="tx_freq" name="tx_freq" step="0.00001" min="136" max="960" value="439.46000" 
+                                   class="w-full px-4 py-2 border border-gray-300 rounded-lg input-focus">
+                        </div>
+                        
+                        <div>
+                            <label for="rx_freq" class="block text-sm font-medium text-gray-700 mb-1">RX Frequency, MHz</label>
+                            <div class="flex">
+                                <input type="number" id="rx_freq" name="rx_freq" step="0.00001" min="136" max="960" value="439.46000" 
+                                       class="flex-1 px-4 py-2 border border-gray-300 rounded-l-lg input-focus">
+                                <button type="button" id="syncFreq" class="bg-gray-100 hover:bg-gray-200 px-4 py-2 border border-l-0 border-gray-300 rounded-r-lg transition-colors">
+                                    <i class="fa fa-sync text-gray-600"></i>
+                                </button>
+                            </div>
+                            <p class="text-xs text-gray-500 mt-1">Click the sync button to keep the receiving frequency consistent with the transmitting frequency.</p>
+                        </div>
+                    </div>
+                    
+                    <!-- CTCSS设置 -->
+                    <div class="space-y-4">
+                        <div>
+                            <label for="tx_ctcss" class="block text-sm font-medium text-gray-700 mb-1">TX CTCSS, Hz</label>
+                            <select id="tx_ctcss" name="tx_ctcss" class="w-full px-4 py-2 border border-gray-300 rounded-lg input-focus">
+                                <option value="00" selected>00 (CLOSE)</option>
+                                <option value="67.0">01 - 67.0 Hz</option>
+                                <option value="71.9">02 - 71.9 Hz</option>
+                                <option value="74.4">03 - 74.4 Hz</option>
+                                <option value="77.0">04 - 77.0 Hz</option>
+                                <option value="79.7">05 - 79.7 Hz</option>
+                                <option value="82.5">06 - 82.5 Hz</option>
+                                <option value="85.4">07 - 85.4 Hz</option>
+                                <option value="88.5">08 - 88.5 Hz</option>
+                                <option value="91.5">09 - 91.5 Hz</option>
+                                <option value="94.8">10 - 94.8 Hz</option>
+                                <option value="97.4">11 - 97.4 Hz</option>
+                                <option value="100.0">12 - 100.0 Hz</option>
+                                <option value="103.5">13 - 103.5 Hz</option>
+                                <option value="107.2">14 - 107.2 Hz</option>
+                                <option value="110.9">15 - 110.9 Hz</option>
+                                <option value="114.8">16 - 114.8 Hz</option>
+                                <option value="118.8">17 - 118.8 Hz</option>
+                                <option value="123.0">18 - 123.0 Hz</option>
+                                <option value="127.3">19 - 127.3 Hz</option>
+                                <option value="131.8">20 - 131.8 Hz</option>
+                                <option value="136.5">21 - 136.5 Hz</option>
+                                <option value="141.3">22 - 141.3 Hz</option>
+                                <option value="146.2">23 - 146.2 Hz</option>
+                                <option value="151.4">24 - 151.4 Hz</option>
+                                <option value="156.7">25 - 156.7 Hz</option>
+                                <option value="162.2">26 - 162.2 Hz</option>
+                                <option value="167.9">27 - 167.9 Hz</option>
+                                <option value="173.8">28 - 173.8 Hz</option>
+                                <option value="179.9">29 - 179.9 Hz</option>
+                                <option value="186.2">30 - 186.2 Hz</option>
+                                <option value="192.8">31 - 192.8 Hz</option>
+                                <option value="203.5">32 - 203.5 Hz</option>
+                                <option value="210.7">33 - 210.7 Hz</option>
+                                <option value="218.1">34 - 218.1 Hz</option>
+                                <option value="225.7">35 - 225.7 Hz</option>
+                                <option value="233.6">36 - 233.6 Hz</option>
+                                <option value="241.8">37 - 241.8 Hz</option>
+                                <option value="250.3">38 - 250.3 Hz</option>
+                            </select>
+                        </div>
+                        
+                        <div>
+                            <label for="rx_ctcss" class="block text-sm font-medium text-gray-700 mb-1">RX CTCSS, Hz</label>
+                            <div class="flex">
+                                <select id="rx_ctcss" name="rx_ctcss" class="flex-1 px-4 py-2 border border-gray-300 rounded-l-lg input-focus">
+                                    <option value="00" selected>00 (CLOSE)</option>
+                                    <option value="67.0">01 - 67.0 Hz</option>
+                                    <option value="71.9">02 - 71.9 Hz</option>
+                                    <option value="74.4">03 - 74.4 Hz</option>
+                                    <option value="77.0">04 - 77.0 Hz</option>
+                                    <option value="79.7">05 - 79.7 Hz</option>
+                                    <option value="82.5">06 - 82.5 Hz</option>
+                                    <option value="85.4">07 - 85.4 Hz</option>
+                                    <option value="88.5">08 - 88.5 Hz</option>
+                                    <option value="91.5">09 - 91.5 Hz</option>
+                                    <option value="94.8">10 - 94.8 Hz</option>
+                                    <option value="97.4">11 - 97.4 Hz</option>
+                                    <option value="100.0">12 - 100.0 Hz</option>
+                                    <option value="103.5">13 - 103.5 Hz</option>
+                                    <option value="107.2">14 - 107.2 Hz</option>
+                                    <option value="110.9">15 - 110.9 Hz</option>
+                                    <option value="114.8">16 - 114.8 Hz</option>
+                                    <option value="118.8">17 - 118.8 Hz</option>
+                                    <option value="123.0">18 - 123.0 Hz</option>
+                                    <option value="127.3">19 - 127.3 Hz</option>
+                                    <option value="131.8">20 - 131.8 Hz</option>
+                                    <option value="136.5">21 - 136.5 Hz</option>
+                                    <option value="141.3">22 - 141.3 Hz</option>
+                                    <option value="146.2">23 - 146.2 Hz</option>
+                                    <option value="151.4">24 - 151.4 Hz</option>
+                                    <option value="156.7">25 - 156.7 Hz</option>
+                                    <option value="162.2">26 - 162.2 Hz</option>
+                                    <option value="167.9">27 - 167.9 Hz</option>
+                                    <option value="173.8">28 - 173.8 Hz</option>
+                                    <option value="179.9">29 - 179.9 Hz</option>
+                                    <option value="186.2">30 - 186.2 Hz</option>
+                                    <option value="192.8">31 - 192.8 Hz</option>
+                                    <option value="203.5">32 - 203.5 Hz</option>
+                                    <option value="210.7">33 - 210.7 Hz</option>
+                                    <option value="218.1">34 - 218.1 Hz</option>
+                                    <option value="225.7">35 - 225.7 Hz</option>
+                                    <option value="233.6">36 - 233.6 Hz</option>
+                                    <option value="241.8">37 - 241.8 Hz</option>
+                                    <option value="250.3">38 - 250.3 Hz</option>
+                                </select>
+                                <button type="button" id="syncCtcss" class="bg-gray-100 hover:bg-gray-200 px-4 py-2 border border-l-0 border-gray-300 rounded-r-lg transition-colors">
+                                    <i class="fa fa-sync text-gray-600"></i>
+                                </button>
+                            </div>
+                            <p class="text-xs text-gray-500 mt-1">Click the sync button to keep the receive CTCSS and transmit CTCSS consistent.</p>
+                        </div>
+                    </div>
+                    
+                    <div class="pt-2">
+                        <button type="button" id="generateCmd" class="w-full bg-primary text-white py-3 px-4 rounded-lg font-medium btn-effect flex items-center justify-center">
+                            <i class="fa fa-code mr-2"></i>Generate AT commands
+                        </button>
+                    </div>
+                </form>
+            </div>
+            
+            <!-- 右侧命令与串口区域 -->
+            <div class="md:col-span-2 space-y-6">
+                <!-- 生成的命令 -->
+                <div class="bg-white rounded-xl p-6 card-shadow">
+                    <h2 class="text-xl font-semibold mb-4 flex items-center">
+                        <i class="fa fa-terminal mr-2 text-accent"></i>Generated AT commands
+                    </h2>
+                    
+                    <div class="mb-3">
+                        <div class="relative">
+                            <textarea id="atCommand" readonly class="w-full h-32 px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg text-sm font-mono resize-none"
+                                      placeholder="AT命令将在这里显示..."></textarea>
+                            <button id="copyCmd" class="absolute right-3 bottom-3 text-gray-500 hover:text-primary transition-colors">
+                                <i class="fa fa-copy"></i>
+                            </button>
+                        </div>
+                        <p id="copyStatus" class="text-xs text-green-600 mt-1 hidden">The command has been copied to the clipboard!</p>
+                    </div>
+                </div>
+                
+                <!-- 串口设置 -->
+                <div class="bg-white rounded-xl p-6 card-shadow">
+                    <h2 class="text-xl font-semibold mb-4 flex items-center">
+                        <i class="fa fa-plug mr-2 text-secondary"></i>Serial Port Settings
+                    </h2>
+                    
+                    <div class="space-y-3">
+                        <div>
+                            <label for="baudRate" class="block text-sm font-medium text-gray-700 mb-1">baud rate</label>
+                            <select id="baudRate" class="w-full px-4 py-2 border border-gray-300 rounded-lg input-focus">
+                                <option value="9600" selected>9600</option>
+                                <option value="1200">1200</option>
+                                <option value="2400">2400</option>
+                                <option value="4800">4800</option>
+                                <option value="19200">19200</option>
+                                <option value="38400">38400</option>
+                                <option value="57600">57600</option>
+                                <option value="115200">115200</option>
+                            </select>
+                        </div>
+                        
+                        <div class="grid grid-cols-2 gap-3">
+                            <button id="connectSerial" class="bg-secondary text-white py-2 px-4 rounded-lg font-medium btn-effect flex items-center justify-center">
+                                <i class="fa fa-connectdevelop mr-1"></i>Connect to the serial port
+                            </button>
+                            <button id="disconnectSerial" class="bg-gray-200 text-gray-700 py-2 px-4 rounded-lg font-medium btn-effect flex items-center justify-center" disabled>
+                                <i class="fa fa-unlink mr-1"></i>Disconnect
+                            </button>
+                        </div>
+                        
+                        <button id="sendCommand" class="w-full bg-accent text-white py-2 px-4 rounded-lg font-medium btn-effect flex items-center justify-center" disabled>
+                            <i class="fa fa-paper-plane mr-1"></i>Send commands to the serial port
+                        </button>
+                        
+                        <div id="serialStatus" class="text-sm text-gray-500 mt-2">
+                            Not connected to the serial port
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 日志区域 -->
+        <div class="mt-6 bg-white rounded-xl p-6 card-shadow">
+            <h2 class="text-xl font-semibold mb-4 flex items-center">
+                <i class="fa fa-history mr-2 text-gray-500"></i>Operation Log ( +DMOSETGROUP:0 is SUCCESS)
+            </h2>
+            
+            <div id="logArea" class="h-40 overflow-y-auto bg-gray-50 p-4 rounded-lg text-sm font-mono space-y-1">
+                <div class="text-gray-500">The log will be displayed here....</div>
+            </div>
+        </div>
+        
+        <!-- 页脚 -->
+        <footer class="mt-10 text-center text-gray-500 text-sm">
+            <p>Intercom frequency and CTCSS setting tool &copy; 2023</p>
+            <p class="mt-1">Note: The serial port functionality requires modern browser support.Web Serial API（Chrome、Edge）</p>
+        </footer>
+    </div>
+
+    <script>
+        // 全局变量
+        let port;
+        let writer;
+        let reader;
+        let readLoopActive = false;
+        
+        // DOM元素
+        const radioForm = document.getElementById('radioForm');
+        const txFreqInput = document.getElementById('tx_freq');
+        const rxFreqInput = document.getElementById('rx_freq');
+        const txCtcssSelect = document.getElementById('tx_ctcss');
+        const rxCtcssSelect = document.getElementById('rx_ctcss');
+        const syncFreqBtn = document.getElementById('syncFreq');
+        const syncCtcssBtn = document.getElementById('syncCtcss');
+        const generateCmdBtn = document.getElementById('generateCmd');
+        const atCommandTextarea = document.getElementById('atCommand');
+        const copyCmdBtn = document.getElementById('copyCmd');
+        const copyStatus = document.getElementById('copyStatus');
+        const connectSerialBtn = document.getElementById('connectSerial');
+        const disconnectSerialBtn = document.getElementById('disconnectSerial');
+        const sendCommandBtn = document.getElementById('sendCommand');
+        const serialStatus = document.getElementById('serialStatus');
+        const logArea = document.getElementById('logArea');
+        const baudRateSelect = document.getElementById('baudRate');
+        
+        // 初始化页面
+        document.addEventListener('DOMContentLoaded', () => {
+            // 生成初始命令
+            generateCommand();
+            
+            // 添加事件监听器
+            syncFreqBtn.addEventListener('click', syncFrequency);
+            syncCtcssBtn.addEventListener('click', syncCtcss);
+            generateCmdBtn.addEventListener('click', generateCommand);
+            copyCmdBtn.addEventListener('click', copyToClipboard);
+            connectSerialBtn.addEventListener('click', connectToSerial);
+            disconnectSerialBtn.addEventListener('click', disconnectFromSerial);
+            sendCommandBtn.addEventListener('click', sendCommandToSerial);
+            
+            // 输入变化时自动更新命令
+            radioForm.addEventListener('change', generateCommand);
+        });
+        
+        // 同步发射和接收频率
+        function syncFrequency() {
+            rxFreqInput.value = txFreqInput.value;
+            log('The transmission and reception frequencies have been synchronized.');
+            generateCommand();
+        }
+        
+        // 同步发射和接收CTCSS
+        function syncCtcss() {
+            rxCtcssSelect.value = txCtcssSelect.value;
+            log('CTCSS has been synchronized for transmission and reception.');
+            generateCommand();
+        }
+        
+        // 生成AT命令
+        function generateCommand() {
+            const band = document.getElementById('band').value;
+            const tx_freq = parseFloat(txFreqInput.value).toFixed(4);
+            const rx_freq = parseFloat(rxFreqInput.value).toFixed(4);
+            const rx_ctcss = rxCtcssSelect.value === '00' ? '00' : formatCtcss(rxCtcssSelect.value);
+            const param2 = document.getElementById('param2').value;
+            const tx_ctcss = txCtcssSelect.value === '00' ? '00' : formatCtcss(txCtcssSelect.value);
+            
+            // 生成AT命令
+            // SA818 const command = `AT+DMOSETGROUP=${band},${tx_freq},${rx_freq},${rx_ctcss},1,${tx_ctcss}\r\n`;
+            const command = `AT+DMOSETGROUP=${band},${tx_freq},${rx_freq},${rx_ctcss},${param2},${tx_ctcss},0\r\n`;
+            atCommandTextarea.value = command;
+            
+            return command;
+        }
+        
+        // 格式化CTCSS值为两位十进制数（01-38）
+        function formatCtcss(ctcssValue) {
+            // 00代表关闭
+            if (ctcssValue === '00') return '00';
+            
+            // 38个CTCSS频率的十进制映射表（01-38）
+            const ctcssMap = {
+                '67.0': '01',
+                '71.9': '02',
+                '74.4': '03',
+                '77.0': '04',
+                '79.7': '05',
+                '82.5': '06',
+                '85.4': '07',
+                '88.5': '08',
+                '91.5': '09',
+                '94.8': '10',
+                '97.4': '11',
+                '100.0': '12',
+                '103.5': '13',
+                '107.2': '14',
+                '110.9': '15',
+                '114.8': '16',
+                '118.8': '17',
+                '123.0': '18',
+                '127.3': '19',
+                '131.8': '20',
+                '136.5': '21',
+                '141.3': '22',
+                '146.2': '23',
+                '151.4': '24',
+                '156.7': '25',
+                '162.2': '26',
+                '167.9': '27',
+                '173.8': '28',
+                '179.9': '29',
+                '186.2': '30',
+                '192.8': '31',
+                '203.5': '32',
+                '210.7': '33',
+                '218.1': '34',
+                '225.7': '35',
+                '233.6': '36',
+                '241.8': '37',
+                '250.3': '38'
+            };
+            
+            return ctcssMap[ctcssValue] || '00';
+        }
+        
+        // 复制命令到剪贴板
+        function copyToClipboard() {
+            const command = atCommandTextarea.value;
+            navigator.clipboard.writeText(command).then(() => {
+                copyStatus.classList.remove('hidden');
+                setTimeout(() => {
+                    copyStatus.classList.add('hidden');
+                }, 2000);
+                log('The command has been copied to the clipboard.');
+            }).catch(err => {
+                console.error('Cannot copy content: ', err);
+                log('Copy failed, please copy manually.', 'error');
+            });
+        }
+        
+        // 连接到串口
+        async function connectToSerial() {
+            try {
+                // 请求用户选择串口
+                port = await navigator.serial.requestPort();
+                
+                // 打开串口
+                const baudRate = parseInt(baudRateSelect.value);
+                await port.open({ baudRate });
+                
+                // 创建写入器
+                writer = port.writable.getWriter();
+                
+                // 开始读取串口数据
+                readLoopActive = true;
+                startReadingSerialData();
+                
+                // 更新UI
+                connectSerialBtn.disabled = true;
+                disconnectSerialBtn.disabled = false;
+                sendCommandBtn.disabled = false;
+                serialStatus.textContent = `Connected to the serial port, baud rate: ${baudRate}`;
+                serialStatus.className = 'text-sm text-green-600 mt-2';
+                log(`Connected to the serial port, baud rate: ${baudRate}`);
+            } catch (err) {
+                console.error('Failed to connect to the serial port: ', err);
+                log(`Failed to connect to the serial port: ${err.message}`, 'error');
+                serialStatus.textContent = `Connection failed: ${err.message}`;
+                serialStatus.className = 'text-sm text-red-600 mt-2';
+            }
+        }
+        
+        // 开始读取串口数据
+        async function startReadingSerialData() {
+            if (!port) return;
+            
+            try {
+                reader = port.readable.getReader();
+                
+                // 持续读取数据的循环
+                while (readLoopActive && port.readable) {
+                    const { value, done } = await reader.read();
+                    
+                    if (done) {
+                        // 读取器已取消
+                        reader.releaseLock();
+                        break;
+                    }
+                    
+                    // 解码接收到的数据并显示
+                    if (value) {
+                        const textDecoder = new TextDecoder();
+                        const receivedData = textDecoder.decode(value);
+                        log(`Receive from the serial port: ${receivedData.trim()}`, 'receive');
+                    }
+                }
+            } catch (err) {
+                console.error('Error reading serial port data: ', err);
+                log(`Serial port read error: ${err.message}`, 'error');
+            }
+        }
+        
+        // 断开串口连接
+        async function disconnectFromSerial() {
+            if (port) {
+                try {
+                    // 停止读取循环
+                    readLoopActive = false;
+                    
+                    // 释放读取器
+                    if (reader) {
+                        await reader.cancel();
+                        await reader.releaseLock();
+                        reader = null;
+                    }
+                    
+                    // 释放写入器
+                    if (writer) {
+                        await writer.releaseLock();
+                        writer = null;
+                    }
+                    
+                    // 关闭端口
+                    await port.close();
+                    port = null;
+                    
+                    // 更新UI
+                    connectSerialBtn.disabled = false;
+                    disconnectSerialBtn.disabled = true;
+                    sendCommandBtn.disabled = true;
+                    serialStatus.textContent = 'Serial port connection has been disconnected.';
+                    serialStatus.className = 'text-sm text-gray-500 mt-2';
+                    log('Serial port connection has been disconnected.');
+                } catch (err) {
+                    console.error('Failed to disconnect the serial port: ', err);
+                    log(`Failed to disconnect the serial port: ${err.message}`, 'error');
+                }
+            }
+        }
+        
+        // 发送命令到串口
+        async function sendCommandToSerial() {
+            if (!port || !writer) {
+                log('Not connected to the serial port', 'error');
+                return;
+            }
+            
+            try {
+                const command = generateCommand();
+                const encoder = new TextEncoder();
+                await writer.write(encoder.encode(command));
+                log(`Send to serial port: ${command.trim()}`, 'send');
+            } catch (err) {
+                console.error('Failed to send command: ', err);
+                log(`Failed to send command: ${err.message}`, 'error');
+            }
+        }
+        
+        // 记录日志
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            
+            // 根据日志类型设置不同样式
+            if (type === 'error') {
+                logEntry.classList.add('text-red-600');
+                logEntry.innerHTML = `[${timestamp}] <span class="font-bold">Error:</span> ${message}`;
+            } else if (type === 'send') {
+                logEntry.classList.add('text-blue-600');
+                logEntry.innerHTML = `[${timestamp}] <span class="font-bold">Send:</span> ${message}`;
+            } else if (type === 'receive') {
+                logEntry.classList.add('text-green-600');
+                logEntry.innerHTML = `[${timestamp}] <span class="font-bold">RX:</span> ${message}`;
+            } else {
+                logEntry.innerHTML = `[${timestamp}] ${message}`;
+            }
+            
+            // 清除初始提示
+            if (logArea.querySelector('.text-gray-500')) {
+                logArea.innerHTML = '';
+            }
+            
+            logArea.appendChild(logEntry);
+            logArea.scrollTop = logArea.scrollHeight;
+        }
+        
+        // 监听页面关闭事件，确保关闭串口
+        window.addEventListener('beforeunload', async () => {
+            if (port) {
+                readLoopActive = false;
+                if (reader) {
+                    await reader.cancel();
+                    await reader.releaseLock();
+                }
+                if (writer) {
+                    await writer.releaseLock();
+                }
+                await port.close();
+            }
+        });
+    </script>
+</body>
+</html>

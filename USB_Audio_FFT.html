@@ -1,0 +1,1039 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>USB Audio&Sound Analyzer</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+  <!-- 引入aprs-parser-js库 -->
+  <script src="https://unpkg.com/aprs-parser-js@latest/dist/aprs-parser.min.js"></script>
+  
+  <!-- 配置Tailwind自定义主题 -->
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: '#3B82F6',
+            secondary: '#10B981',
+            accent: '#8B5CF6',
+            aprs: '#F59E0B', // APRS相关元素的颜色
+            dark: '#1E293B',
+            light: '#F8FAFC'
+          },
+          fontFamily: {
+            inter: ['Inter', 'system-ui', 'sans-serif'],
+            mono: ['Consolas', 'Monaco', 'monospace']
+          },
+        },
+      }
+    }
+  </script>
+  
+  <style type="text/tailwindcss">
+    @layer utilities {
+      .content-auto {
+        content-visibility: auto;
+      }
+      .glass-effect {
+        backdrop-filter: blur(10px);
+        background-color: rgba(255, 255, 255, 0.1);
+      }
+      .glow {
+        box-shadow: 0 0 15px theme('colors.secondary');
+      }
+      .aprs-glow {
+        box-shadow: 0 0 15px theme('colors.aprs');
+      }
+      .scrollbar-thin {
+        scrollbar-width: thin;
+      }
+      .scrollbar-thin::-webkit-scrollbar {
+        width: 4px;
+        height: 4px;
+      }
+      .scrollbar-thin::-webkit-scrollbar-thumb {
+        background-color: rgba(255, 255, 255, 0.2);
+        border-radius: 2px;
+      }
+      .fade-in {
+        animation: fadeIn 0.3s ease-in-out;
+      }
+      @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+      }
+    }
+  </style>
+</head>
+
+<body class="bg-gradient-to-br from-dark to-slate-900 text-light font-inter min-h-screen flex flex-col">
+  <!-- 顶部导航栏 -->
+  <header class="glass-effect border-b border-white/10 sticky top-0 z-50 transition-all duration-300">
+    <div class="container mx-auto px-4 py-3 flex justify-between items-center">
+      <div class="flex items-center space-x-2">
+        <i class="fa fa-area-chart text-secondary text-2xl"></i>
+        <h1 class="text-xl md:text-2xl font-bold bg-gradient-to-r from-secondary to-accent bg-clip-text text-transparent">
+          USB Audio FFT
+        </h1>
+        <span class="hidden md:inline-block bg-aprs/20 text-aprs text-xs px-2 py-0.5 rounded-full">Tested</span>
+      </div>
+      
+      <div class="flex items-center space-x-4">
+        <button id="helpBtn" class="p-2 rounded-full hover:bg-white/10 transition-colors">
+          <i class="fa fa-question-circle text-lg"></i>
+        </button>
+        <button id="settingsBtn" class="p-2 rounded-full hover:bg-white/10 transition-colors">
+          <i class="fa fa-cog text-lg"></i>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- 主内容区 -->
+  <main class="flex-grow container mx-auto px-4 py-8">
+    <!-- 状态和控制区 -->
+    <div class="mb-8 glass-effect rounded-xl p-6 border border-white/10 shadow-lg">
+      <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+        <div>
+          <h2 class="text-xl font-semibold mb-2">Device Status</h2>
+          <div class="flex items-center gap-2">
+            <span id="statusIndicator" class="w-3 h-3 rounded-full bg-red-500"></span>
+            <span id="statusText" class="text-slate-400">USB Audio device not connected</span>
+          </div>
+        </div>
+        
+        <div class="flex flex-wrap gap-3">
+          <button id="startBtn" class="bg-primary hover:bg-primary/80 text-white px-6 py-2.5 rounded-lg font-medium transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+            <i class="fa fa-play"></i>
+            <span>Start analyzing Audio on VHF Freq</span>
+          </button>
+          
+          <button id="aprsDecodeBtn" class="bg-aprs hover:bg-aprs/80 text-white px-6 py-2.5 rounded-lg font-medium transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+            <i class="fa fa-decode"></i>
+            <span>Enable APRS decoding(Not realized)</span>
+          </button>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 频谱显示区 -->
+    <div class="mb-8 relative glass-effect rounded-xl p-4 md:p-6 border border-white/10 shadow-lg overflow-hidden">
+      <div class="absolute top-4 right-4 bg-dark/70 rounded-lg px-3 py-1.5 text-sm backdrop-blur-sm border border-white/10 flex gap-4">
+        <span id="activeDevice" class="text-slate-300">No device selected</span>
+        <span id="aprsStatus" class="text-aprs hidden"><i class="fa fa-circle text-xs animate-pulse"></i> Decode APRS</span>
+      </div>
+      
+      <h2 class="text-xl font-semibold mb-4">Real-time spectral analysis <span class="text-aprs text-sm font-normal">(BELL 1200: 1200Hz/2200Hz)</span></h2>
+      
+      <!-- 频谱画布容器 -->
+      <div class="relative h-[300px] md:h-[400px] w-full">
+        <canvas id="spectrumCanvas" class="w-full h-full"></canvas>
+        
+        <!-- 最强频率指示器 -->
+        <div id="peakIndicator" class="hidden absolute w-1 bg-secondary glow rounded-full" style="height: 100%; top: 0;"></div>
+        
+        <!-- BELL 1200频率标记（调整后位置） -->
+        <div id="marker1200" class="absolute w-1 bg-aprs/50" style="height: 100%; top: 0;">
+          <div class="absolute -left-10 bg-aprs/80 text-white text-xs px-2 py-0.5 rounded translate-x-1/2 -translate-y-full">1200Hz</div>
+        </div>
+        <div id="marker2200" class="absolute w-1 bg-aprs/50" style="height: 100%; top: 0;">
+          <div class="absolute -left-10 bg-aprs/80 text-white text-xs px-2 py-0.5 rounded translate-x-1/2 -translate-y-full">2200Hz</div>
+        </div>
+      </div>
+      
+      <!-- 频率刻度 -->
+      <div class="flex justify-between text-xs text-slate-400 mt-2 px-2">
+        <span>20 Hz</span>
+        <span>1 kHz</span>
+        <span>2 kHz</span>
+        <span>10 kHz</span>
+        <span>20 kHz</span>
+      </div>
+    </div>
+    
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
+      <!-- 最强频率信息 -->
+      <div class="glass-effect rounded-xl p-6 border border-white/10 shadow-lg lg:col-span-1">
+        <h2 class="text-xl font-semibold mb-4">Signal Analysis</h2>
+        
+        <div class="space-y-6">
+          <div class="bg-white/5 rounded-lg p-5 border border-white/10 transform transition-transform hover:scale-[1.02]">
+            <h3 class="text-slate-400 text-sm mb-1">Strongest Frequency</h3>
+            <div class="flex items-end gap-1">
+              <span id="peakFrequency" class="text-3xl font-bold text-secondary">--</span>
+              <span class="text-slate-400 mb-1">Hz</span>
+            </div>
+          </div>
+          
+          <div class="bg-white/5 rounded-lg p-5 border border-white/10 transform transition-transform hover:scale-[1.02]">
+            <h3 class="text-slate-400 text-sm mb-1">Signal strength</h3>
+            <div class="flex items-center gap-2">
+              <div class="w-full bg-white/10 rounded-full h-2.5">
+                <div id="signalStrengthBar" class="bg-gradient-to-r from-primary to-secondary h-2.5 rounded-full" style="width: 0%"></div>
+              </div>
+              <span id="signalStrengthValue" class="text-slate-300 min-w-[40px] text-right">0%</span>
+            </div>
+          </div>
+          
+          <div class="bg-white/5 rounded-lg p-5 border border-white/10 transform transition-transform hover:scale-[1.02]">
+            <h3 class="text-slate-400 text-sm mb-1">Analyze status</h3>
+            <div class="flex items-center gap-2">
+              <span id="analysisStatus" class="text-slate-300">Not started</span>
+              <i id="analysisIcon" class="fa fa-circle-o-notch text-slate-500"></i>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- APRS解码结果 -->
+      <div class="glass-effect rounded-xl p-6 border border-white/10 shadow-lg lg:col-span-2">
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="text-xl font-semibold">APRS decoding results <span class="text-aprs text-sm font-normal">(use aprs-parser-js)</span></h2>
+          <button id="clearAprsDataBtn" class="text-slate-400 hover:text-white text-sm flex items-center gap-1">
+            <i class="fa fa-trash-o"></i> Clear
+          </button>
+        </div>
+        
+        <div class="bg-dark/50 rounded-lg border border-white/10 h-[300px] overflow-y-auto scrollbar-thin p-4 font-mono text-sm">
+          <div id="aprsDataContainer" class="space-y-3">
+            <div class="text-slate-500 italic">
+              <i class="fa fa-info-circle"></i> APRS decoding not started. Click the 'Enable APRS Decoding' button to start receiving and decoding BELL 1200 signals.
+            </div>
+            <div class="text-slate-500 italic">
+              <i class="fa fa-info-circle"></i> Waiting for the 1200Hz/2200Hz FSK signal...
+            </div>
+          </div>
+        </div>
+        
+        <div class="mt-4 text-xs text-slate-400">
+          <p><i class="fa fa-clock-o"></i> Last updated: <span id="lastAprsUpdate">Never</span></p>
+        </div>
+      </div>
+    </div>
+  </main>
+  
+  <!-- 权限请求提示 -->
+  <div id="permissionToast" class="fixed bottom-6 left-1/2 transform -translate-x-1/2 bg-dark border border-white/10 rounded-lg p-4 shadow-lg z-50 hidden fade-in max-w-md w-full">
+    <div class="flex items-start gap-3">
+      <div class="text-primary mt-0.5">
+        <i class="fa fa-microphone text-xl"></i>
+      </div>
+      <div class="flex-grow">
+        <h4 class="font-medium">Audio device permission is required.</h4>
+        <p class="text-sm text-slate-400 mt-1">Please allow the browser to access the audio device to start analyzing.。</p>
+      </div>
+      <button id="closePermissionToast" class="text-slate-400 hover:text-white">
+        <i class="fa fa-times"></i>
+      </button>
+    </div>
+  </div>
+  
+  <!-- 错误提示 -->
+  <div id="errorToast" class="fixed bottom-6 left-1/2 transform -translate-x-1/2 bg-dark border border-red-500/30 rounded-lg p-4 shadow-lg z-50 hidden fade-in max-w-md w-full">
+    <div class="flex items-start gap-3">
+      <div class="text-red-400 mt-0.5">
+        <i class="fa fa-exclamation-circle text-xl"></i>
+      </div>
+      <div class="flex-grow">
+        <h4 class="font-medium text-red-400">Operation failed</h4>
+        <p id="errorMessage" class="text-sm text-slate-300 mt-1">An error occurred, please try again.。</p>
+      </div>
+      <button id="closeErrorToast" class="text-slate-400 hover:text-white">
+        <i class="fa fa-times"></i>
+      </button>
+    </div>
+  </div>
+  
+  <!-- 帮助模态框 -->
+  <div id="helpModal" class="fixed inset-0 bg-black/70 z-50 hidden items-center justify-center backdrop-blur-sm">
+    <div class="bg-dark border border-white/10 rounded-xl w-full max-w-2xl p-6 shadow-2xl transform transition-all max-h-[90vh] overflow-y-auto">
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="text-xl font-semibold">Help</h3>
+        <button id="closeHelpBtn" class="text-slate-400 hover:text-white">
+          <i class="fa fa-times"></i>
+        </button>
+      </div>
+      
+      <div class="space-y-6 text-slate-300">
+        <div>
+          <h4 class="text-white font-medium mb-2">How to start analyzing？</h4>
+          <ol class="list-decimal pl-5 space-y-1">
+            <li>Click the 'Start Analysis' button.</li>
+            <li>Grant browser access to audio devices</li>
+            <li>The system will automatically use the default audio device.</li>
+          </ol>
+        </div>
+        
+        <div>
+          <h4 class="text-white font-medium mb-2">关于APRS解码</h4>
+          <p>本工具使用专业的aprs-parser-js库解码BELL 1200型APRS信号，支持：</p>
+          <ul class="list-disc pl-5 space-y-1 mt-2">
+            <li>位置报告（经纬度、海拔）</li>
+            <li>状态消息和天气数据</li>
+            <li>对象和项目报告</li>
+            <li>各种APRS数据格式解析</li>
+          </ul>
+        </div>
+        
+        <div>
+          <h4 class="text-white font-medium mb-2">test</h4>
+          <p>only for test ,please use direwolf-1.7.0-9807304_i686 to decode APRS signal and IGATE</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- 页脚 -->
+  <footer class="glass-effect border-t border-white/10 py-4 mt-8">
+    <div class="container mx-auto px-4 text-center text-slate-500 text-sm">
+      <p>APRS Spectrum Analyzer (Professional Decode Version) © 2023 | Based on aprs-parser-js library</p>
+    </div>
+  </footer>
+
+  <script>
+    // 全局变量
+    let audioContext;
+    let analyser;
+    let microphone;
+    let dataArray;
+    let animationId;
+    let isAnalyzing = false;
+    let canvas, ctx;
+    let bars = 128; // FFT大小
+    
+    // APRS解码相关变量
+    let isAprsDecoding = false;
+    let aprsDecoder;
+    let lastAprsDataTime = null;
+    let aprsParser; // aprs-parser-js实例
+    
+    // 频率标记DOM元素
+    let marker1200, marker2200;
+    
+    // DOM元素
+    const startBtn = document.getElementById('startBtn');
+    const aprsDecodeBtn = document.getElementById('aprsDecodeBtn');
+    const clearAprsDataBtn = document.getElementById('clearAprsDataBtn');
+    const statusIndicator = document.getElementById('statusIndicator');
+    const statusText = document.getElementById('statusText');
+    const activeDevice = document.getElementById('activeDevice');
+    const peakFrequency = document.getElementById('peakFrequency');
+    const signalStrengthBar = document.getElementById('signalStrengthBar');
+    const signalStrengthValue = document.getElementById('signalStrengthValue');
+    const analysisStatus = document.getElementById('analysisStatus');
+    const analysisIcon = document.getElementById('analysisIcon');
+    const peakIndicator = document.getElementById('peakIndicator');
+    const helpBtn = document.getElementById('helpBtn');
+    const helpModal = document.getElementById('helpModal');
+    const closeHelpBtn = document.getElementById('closeHelpBtn');
+    const aprsStatus = document.getElementById('aprsStatus');
+    const aprsDataContainer = document.getElementById('aprsDataContainer');
+    const lastAprsUpdate = document.getElementById('lastAprsUpdate');
+    const permissionToast = document.getElementById('permissionToast');
+    const closePermissionToast = document.getElementById('closePermissionToast');
+    const errorToast = document.getElementById('errorToast');
+    const errorMessage = document.getElementById('errorMessage');
+    const closeErrorToast = document.getElementById('closeErrorToast');
+    
+    // 显示提示信息
+    function showToast(element, duration = 5000) {
+      element.classList.remove('hidden');
+      setTimeout(() => {
+        element.classList.add('hidden');
+      }, duration);
+    }
+    
+    // 初始化画布和频率标记
+    function initCanvas() {
+      canvas = document.getElementById('spectrumCanvas');
+      ctx = canvas.getContext('2d');
+      
+      // 获取频率标记元素
+      marker1200 = document.getElementById('marker1200');
+      marker2200 = document.getElementById('marker2200');
+      
+      // 设置画布尺寸以匹配显示大小
+      function resizeCanvas() {
+        const { width, height } = canvas.getBoundingClientRect();
+        if (canvas.width !== width || canvas.height !== height) {
+          canvas.width = width;
+          canvas.height = height;
+        }
+        
+        // 调整频率标记位置
+        updateFrequencyMarkers();
+      }
+      
+      // 初始化时调整一次
+      resizeCanvas();
+      
+      // 窗口大小改变时调整
+      window.addEventListener('resize', resizeCanvas);
+    }
+    
+    // 更新频率标记位置（根据视觉需求调整）
+    function updateFrequencyMarkers() {
+      if (!marker1200 || !marker2200 || !canvas) return;
+      
+      // 获取频谱画布宽度
+      const canvasWidth = canvas.offsetWidth;
+      
+      // 总频率范围是20Hz到20kHz，共19980Hz
+      // 调整标记位置：1200Hz放在1kHz附近，2200Hz放在2kHz附近
+      
+      // 1kHz位置的百分比 (1000Hz / 20000Hz)
+      const oneKhzPercent = (1000 / 20000) * 100;
+      // 1200Hz在1kHz基础上稍微右移一点
+      const marker1200Percent = oneKhzPercent + 22;
+      
+      // 2kHz位置的百分比 (2000Hz / 20000Hz)
+      const twoKhzPercent = (2000 / 20000) * 100;
+      // 2200Hz在2kHz基础上稍微右移一点
+      const marker2200Percent = twoKhzPercent + 42;
+      
+      // 设置标记位置
+      marker1200.style.left = `${marker1200Percent}%`;
+      marker2200.style.left = `${marker2200Percent}%`;
+    }
+    
+    // 获取当前使用的设备信息
+    async function getCurrentDeviceInfo(stream) {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const track = stream.getAudioTracks()[0];
+        
+        for (const device of devices) {
+          if (device.kind === 'audioinput' && device.deviceId === track.getSettings().deviceId) {
+            return device.label || `默认音频设备`;
+          }
+        }
+        return '音频设备';
+      } catch (err) {
+        console.error('获取设备信息失败:', err);
+        return '音频设备';
+      }
+    }
+    
+    // 初始化音频上下文和分析器
+    function initAudio() {
+      // 关闭任何现有的分析
+      stopAnalysis();
+      
+      // 创建音频上下文
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      
+      // 创建分析器节点
+      analyser = audioContext.createAnalyser();
+      analyser.fftSize = bars * 2; // FFT大小必须是2的幂
+      analyser.minDecibels = -90;
+      analyser.maxDecibels = -10;
+      analyser.smoothingTimeConstant = 0.85;
+      
+      // 创建数据数组
+      const bufferLength = analyser.frequencyBinCount;
+      dataArray = new Uint8Array(bufferLength);
+      
+      // 初始化APRS解码器和解析器
+      initAprsDecoder();
+      initAprsParser();
+    }
+    
+    // 初始化aprs-parser-js解析器
+    function initAprsParser() {
+      try {
+        // 创建APRS解析器实例
+        aprsParser = new aprs.APRSParser();
+        console.log('aprs-parser-js初始化成功');
+      } catch (err) {
+        console.error('aprs-parser-js初始化失败:', err);
+        errorMessage.textContent = 'APRS解析器初始化失败，可能是库加载问题。';
+        showToast(errorToast);
+      }
+    }
+    
+    // 初始化APRS解码器（BELL 1200 FSK解码）
+    function initAprsDecoder() {
+      // 创建一个脚本处理器来处理原始音频数据
+      const bufferSize = 4096;
+      const scriptProcessor = audioContext.createScriptProcessor(bufferSize, 1, 1);
+      
+      // BELL 1200解码参数
+      const sampleRate = audioContext.sampleRate;
+      const baudRate = 1200;
+      const samplesPerBit = sampleRate / baudRate;
+      const markFreq = 2200; // 逻辑1
+      const spaceFreq = 1200; // 逻辑0
+      
+      // 解码状态
+      let bitBuffer = [];
+      let currentBit = null;
+      let sampleCount = 0;
+      let bitCount = 0;
+      let frameBuffer = [];
+      let frameStartDetected = false;
+      
+      // 用于频率检测的Goertzel算法实现
+      function goertzel(samples, targetFreq) {
+        const n = samples.length;
+        const k = Math.round(n * targetFreq / sampleRate);
+        const w = (2 * Math.PI * k) / n;
+        const cosW = Math.cos(w);
+        const sinW = Math.sin(w);
+        const coeff = 2 * cosW;
+        
+        let q0 = 0, q1 = 0, q2 = 0;
+        for (let i = 0; i < n; i++) {
+          q0 = coeff * q1 - q2 + samples[i];
+          q2 = q1;
+          q1 = q0;
+        }
+        
+        return q1 * q1 + q2 * q2 - q1 * q2 * coeff;
+      }
+      
+      // 曼彻斯特解码（BELL 1200使用的编码方式）
+      function manchesterDecode(bits) {
+        if (bits.length % 2 !== 0) return [];
+        
+        const decoded = [];
+        for (let i = 0; i < bits.length; i += 2) {
+          // 曼彻斯特编码规则：0->10，1->01
+          if (bits[i] === 1 && bits[i+1] === 0) {
+            decoded.push(0);
+          } else if (bits[i] === 0 && bits[i+1] === 1) {
+            decoded.push(1);
+          } else {
+            // 编码错误，返回空
+            return [];
+          }
+        }
+        return decoded;
+      }
+      
+      // 处理音频数据
+      scriptProcessor.onaudioprocess = function(e) {
+        if (!isAprsDecoding || !aprsParser) return;
+        
+        const inputData = e.inputBuffer.getChannelData(0);
+        
+        // 将音频数据分块以匹配每个比特的采样数
+        const bitsPerBuffer = Math.floor(inputData.length / samplesPerBit);
+        
+        for (let i = 0; i < bitsPerBuffer; i++) {
+          const start = Math.floor(i * samplesPerBit);
+          const end = Math.floor(start + samplesPerBit);
+          const bitSamples = inputData.slice(start, end);
+          
+          // 计算两个频率的能量
+          const markEnergy = goertzel(bitSamples, markFreq);
+          const spaceEnergy = goertzel(bitSamples, spaceFreq);
+          
+          // 确定当前比特值（1或0）
+          const bit = markEnergy > spaceEnergy ? 1 : 0;
+          
+          // 简单的比特同步和去抖
+          if (currentBit === null) {
+            currentBit = bit;
+            bitCount = 1;
+          } else if (bit === currentBit) {
+            bitCount++;
+            if (bitCount >= 3) { // 连续3个相同比特确认
+              bitBuffer.push(currentBit);
+              currentBit = null;
+              bitCount = 0;
+              
+              // 尝试解码数据帧
+              decodeFrame();
+            }
+          } else {
+            bitCount = 1;
+            currentBit = bit;
+          }
+        }
+      };
+      
+      // 尝试解码数据帧
+      function decodeFrame() {
+        // 寻找帧同步模式 (HDLC标志: 0x7E)
+        while (bitBuffer.length >= 16) { // 曼彻斯特编码每个字节需要16位
+          // 对16位进行曼彻斯特解码得到8位字节
+          const manchesterBits = bitBuffer.slice(0, 16);
+          const decodedByteBits = manchesterDecode(manchesterBits);
+          
+          if (decodedByteBits.length !== 8) {
+            // 解码失败，移除一位继续尝试
+            bitBuffer.splice(0, 1);
+            continue;
+          }
+          
+          // 转换为字节值
+          const byte = parseInt(decodedByteBits.join(''), 2);
+          
+          // HDLC帧开始/结束标志
+          if (byte === 0x7E) {
+            if (frameStartDetected) {
+              // 检测到帧结束
+              if (frameBuffer.length > 0) {
+                // 处理完整帧
+                processFrame(frameBuffer);
+                frameBuffer = [];
+              }
+              frameStartDetected = false;
+            } else {
+              // 检测到帧开始
+              frameStartDetected = true;
+              frameBuffer = [];
+            }
+            bitBuffer.splice(0, 16);
+          } else if (frameStartDetected) {
+            // 添加到当前帧
+            frameBuffer.push(byte);
+            bitBuffer.splice(0, 16);
+          } else {
+            // 尚未找到帧开始标志，丢弃一位继续
+            bitBuffer.splice(0, 1);
+          }
+        }
+      }
+      
+      // 处理解码后的帧并使用aprs-parser-js解析
+      function processFrame(frame) {
+        if (frame.length < 3) return; // 忽略太短的帧
+        
+        try {
+          // 转换为APRS信息字符串
+          const aprsString = String.fromCharCode(...frame);
+          
+          // 使用aprs-parser-js解析APRS数据
+          const parsedPacket = aprsParser.parseAPRS(aprsString);
+          
+          // 显示解码结果
+          addAprsData(aprsString, parsedPacket);
+        } catch (err) {
+          console.error('APRS解析错误:', err);
+          // 仍然显示原始数据，即使解析失败
+          addAprsData(String.fromCharCode(...frame), null);
+        }
+      }
+      
+      // 保存解码器引用
+      aprsDecoder = {
+        node: scriptProcessor,
+        start: function() {
+          analyser.connect(scriptProcessor);
+          scriptProcessor.connect(audioContext.destination);
+        },
+        stop: function() {
+          scriptProcessor.disconnect();
+        }
+      };
+    }
+    
+    // 添加APRS解码数据到显示区域
+    function addAprsData(rawData, parsedData) {
+      // 更新时间戳
+      const now = new Date();
+      const timeString = now.toLocaleTimeString();
+      lastAprsDataTime = timeString;
+      lastAprsUpdate.textContent = timeString;
+      
+      // 创建新的数据元素
+      const dataElement = document.createElement('div');
+      dataElement.className = 'bg-aprs/10 p-3 rounded-lg border border-aprs/20 fade-in mb-4';
+      
+      // 构建原始数据和解析数据的HTML
+      let parsedHtml = '';
+      
+      if (parsedData) {
+        // 构建解析后的数据展示
+        parsedHtml = '<div class="mt-2 pt-2 border-t border-aprs/30 text-xs">';
+        
+        // 显示呼叫 signs
+        if (parsedData.source) parsedHtml += `<p><span class="text-green-400">源:</span> ${parsedData.source}</p>`;
+        if (parsedData.destination) parsedHtml += `<p><span class="text-green-400">目标:</span> ${parsedData.destination}</p>`;
+        
+        // 显示位置信息（如果有）
+        if (parsedData.latitude && parsedData.longitude) {
+          parsedHtml += `<p><span class="text-green-400">位置:</span> ${parsedData.latitude.toFixed(6)}, ${parsedData.longitude.toFixed(6)}</p>`;
+        }
+        
+        // 显示 altitude（如果有）
+        if (parsedData.altitude) {
+          parsedHtml += `<p><span class="text-green-400">海拔:</span> ${parsedData.altitude.toFixed(1)} 米</p>`;
+        }
+        
+        // 显示消息类型
+        if (parsedData.type) parsedHtml += `<p><span class="text-green-400">类型:</span> ${parsedData.type}</p>`;
+        
+        // 显示评论（如果有）
+        if (parsedData.comment) parsedHtml += `<p><span class="text-green-400">评论:</span> ${parsedData.comment}</p>`;
+        
+        parsedHtml += '</div>';
+      } else {
+        // 解析失败
+        parsedHtml = '<div class="mt-2 pt-2 border-t border-red-500/30 text-xs text-red-400">';
+        parsedHtml += '<p>无法解析APRS数据包，可能是信号质量问题或不支持的格式。</p>';
+        parsedHtml += '</div>';
+      }
+      
+      dataElement.innerHTML = `
+        <div class="flex justify-between items-center mb-1">
+          <span class="text-aprs text-xs"><i class="fa fa-signal"></i> 接收于 ${timeString}</span>
+          <span class="text-xs text-slate-400">长度: ${rawData.length} 字符</span>
+        </div>
+        <div class="text-xs text-slate-300 mb-1 font-mono">原始数据: ${escapeHtml(rawData)}</div>
+        ${parsedHtml}
+      `;
+      
+      // 添加到容器顶部
+      aprsDataContainer.insertBefore(dataElement, aprsDataContainer.firstChild);
+      
+      // 限制显示的条目数量
+      if (aprsDataContainer.children.length > 10) {
+        aprsDataContainer.removeChild(aprsDataContainer.lastChild);
+      }
+    }
+    
+    // HTML转义函数，防止XSS
+    function escapeHtml(unsafe) {
+      return unsafe
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+    
+    // 开始/停止APRS解码
+    function toggleAprsDecoding() {
+      if (!isAnalyzing) {
+        errorMessage.textContent = '请先开始音频分析，然后再启用APRS解码。';
+        showToast(errorToast);
+        return;
+      }
+      
+      if (!aprsParser) {
+        errorMessage.textContent = 'APRS解析器未初始化，请刷新页面重试。';
+        showToast(errorToast);
+        return;
+      }
+      
+      if (isAprsDecoding) {
+        // 停止解码
+        isAprsDecoding = false;
+        aprsDecodeBtn.innerHTML = '<i class="fa fa-decode"></i><span>启用APRS解码</span>';
+        aprsDecodeBtn.classList.remove('bg-red-500', 'hover:bg-red-600');
+        aprsDecodeBtn.classList.add('bg-aprs', 'hover:bg-aprs/80');
+        aprsStatus.classList.add('hidden');
+        
+        if (aprsDecoder) {
+          aprsDecoder.stop();
+        }
+        
+        addAprsData('', null);
+        
+      } else {
+        // 开始解码
+        isAprsDecoding = true;
+        aprsDecodeBtn.innerHTML = '<i class="fa fa-stop"></i><span>停止APRS解码</span>';
+        aprsDecodeBtn.classList.remove('bg-aprs', 'hover:bg-aprs/80');
+        aprsDecodeBtn.classList.add('bg-red-500', 'hover:bg-red-600');
+        aprsStatus.classList.remove('hidden');
+        
+        // 清除初始提示文本
+        if (aprsDataContainer.querySelector('.italic')) {
+          aprsDataContainer.innerHTML = '';
+        }
+        
+        addAprsData('APRS解码已启动，等待BELL 1200信号...', null);
+        
+        if (aprsDecoder) {
+          aprsDecoder.start();
+        }
+      }
+    }
+    
+    // 开始音频分析
+    async function startAnalysis() {
+      if (isAnalyzing) {
+        stopAnalysis();
+        return;
+      }
+      
+      try {
+        // 显示权限请求提示
+        showToast(permissionToast);
+        
+        // 初始化音频上下文
+        if (!audioContext) {
+          initAudio();
+        } else if (audioContext.state === 'suspended') {
+          await audioContext.resume();
+        }
+        
+        // 获取媒体流 - 使用默认设备
+        const constraints = {
+          audio: true,
+          video: false
+        };
+        
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        
+        // 获取并显示当前设备信息
+        const deviceName = await getCurrentDeviceInfo(stream);
+        activeDevice.textContent = deviceName;
+        
+        // 创建媒体流源
+        microphone = audioContext.createMediaStreamSource(stream);
+        microphone.connect(analyser);
+        
+        // 更新状态
+        isAnalyzing = true;
+        startBtn.innerHTML = '<i class="fa fa-stop"></i><span>Stop analyzing</span>';
+        startBtn.classList.remove('bg-primary', 'hover:bg-primary/80');
+        startBtn.classList.add('bg-red-500', 'hover:bg-red-600');
+        
+        statusIndicator.classList.remove('bg-red-500');
+        statusIndicator.classList.add('bg-green-500');
+        statusText.textContent = 'Analyzing audio';
+        
+        analysisStatus.textContent = 'Under analysis';
+        analysisIcon.className = 'fa fa-spinner fa-spin text-secondary';
+        
+        // 开始绘制频谱
+        drawSpectrum();
+        
+      } catch (err) {
+        console.error('Failed to start audio analysis:', err);
+        
+        // 根据错误类型显示不同信息
+        if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+          errorMessage.textContent = 'No audio device access permission, please allow in the browser settings.。';
+        } else if (err.name === 'NotFoundError') {
+          errorMessage.textContent = 'No audio devices found, please ensure the device is connected.。';
+        } else {
+          errorMessage.textContent = `Startup failed: ${err.message}`;
+        }
+        
+        showToast(errorToast);
+        stopAnalysis();
+      }
+    }
+    
+    // 停止音频分析
+    function stopAnalysis() {
+      if (!isAnalyzing) return;
+      
+      // 停止APRS解码（如果正在运行）
+      if (isAprsDecoding) {
+        toggleAprsDecoding();
+      }
+      
+      // 停止动画
+      if (animationId) {
+        cancelAnimationFrame(animationId);
+        animationId = null;
+      }
+      
+      // 断开音频连接
+      if (microphone) {
+        microphone.disconnect();
+        microphone = null;
+      }
+      
+      // 断开解码器连接
+      if (aprsDecoder) {
+        aprsDecoder.stop();
+      }
+      
+      // 暂停音频上下文以节省资源
+      if (audioContext && audioContext.state !== 'closed') {
+        audioContext.suspend();
+      }
+      
+      // 更新状态
+      isAnalyzing = false;
+      startBtn.innerHTML = '<i class="fa fa-play"></i><span>Start analyzing</span>';
+      startBtn.classList.remove('bg-red-500', 'hover:bg-red-600');
+      startBtn.classList.add('bg-primary', 'hover:bg-primary/80');
+      
+      statusIndicator.classList.remove('bg-green-500');
+      statusIndicator.classList.add('bg-yellow-500');
+      statusText.textContent = 'Analysis has been stopped.';
+      
+      analysisStatus.textContent = 'Stopped';
+      analysisIcon.className = 'fa fa-pause text-yellow-500';
+      
+      // 清除画布
+      if (ctx) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
+      
+      // 隐藏峰值指示器
+      peakIndicator.classList.add('hidden');
+    }
+    
+    // 绘制频谱图
+    function drawSpectrum() {
+      if (!isAnalyzing || !analyser || !ctx) return;
+      
+      // 获取画布尺寸
+      const width = canvas.width;
+      const height = canvas.height;
+      
+      // 清除画布
+      ctx.clearRect(0, 0, width, height);
+      
+      // 获取频率数据
+      analyser.getByteFrequencyData(dataArray);
+      
+      // 计算每个条的宽度
+      const barWidth = (width / dataArray.length) * 2.5;
+      
+      // 找出最强频率及其强度
+      let maxValue = 0;
+      let maxIndex = 0;
+      
+      for (let i = 0; i < dataArray.length; i++) {
+        if (dataArray[i] > maxValue) {
+          maxValue = dataArray[i];
+          maxIndex = i;
+        }
+      }
+      
+      // 计算最强频率（Hz）
+      const sampleRate = audioContext.sampleRate;
+      const nyquist = sampleRate / 2; // 奈奎斯特频率
+      const frequencyInterval = nyquist / dataArray.length;
+      const peakFreq = maxIndex * frequencyInterval;
+      
+      // 更新最强频率显示
+      peakFrequency.textContent = peakFreq.toFixed(0);
+      
+      // 更新信号强度
+      const strengthPercent = Math.min(100, (maxValue / 255) * 100);
+      signalStrengthBar.style.width = `${strengthPercent}%`;
+      signalStrengthValue.textContent = `${Math.round(strengthPercent)}%`;
+      
+      // 计算峰值指示器位置
+      const peakX = (maxIndex * barWidth) - (barWidth / 2);
+      peakIndicator.style.left = `${peakX}px`;
+      peakIndicator.classList.remove('hidden');
+      
+      // 绘制频谱条
+      let x = 0;
+      for (let i = 0; i < dataArray.length; i++) {
+        // 计算条的高度
+        const barHeight = (dataArray[i] / 255) * height;
+        
+        // 创建渐变颜色
+        const gradient = ctx.createLinearGradient(0, height, 0, height - barHeight);
+        
+        // 根据频率设置不同的基础色调
+        let hue;
+        if (i < dataArray.length / 3) {
+          hue = 120; // 低频 - 绿色
+        } else if (i < dataArray.length * 2 / 3) {
+          hue = 210; // 中频 - 蓝色
+        } else {
+          hue = 300; // 高频 - 紫色
+        }
+        
+        // 强调BELL 1200频率附近的条
+        const freq = i * frequencyInterval;
+        const isBellFrequency = (freq > 1100 && freq < 1300) || (freq > 2100 && freq < 2300);
+        
+        // 最强频率的条使用不同颜色
+        if (i === maxIndex) {
+          gradient.addColorStop(0, '#ef4444'); // 红色
+          gradient.addColorStop(1, '#f97316'); // 橙色
+        } else if (isBellFrequency) {
+          gradient.addColorStop(0, `hsl(38, 100%, 70%)`); // 橙色
+          gradient.addColorStop(1, `hsl(38, 100%, 30%)`); // 深橙色
+        } else {
+          gradient.addColorStop(0, `hsl(${hue}, 100%, 70%)`);
+          gradient.addColorStop(1, `hsl(${hue}, 100%, 30%)`);
+        }
+        
+        // 绘制条
+        ctx.fillStyle = gradient;
+        ctx.fillRect(x, height - barHeight, barWidth, barHeight);
+        
+        // 添加发光效果
+        if (dataArray[i] > 150) {
+          ctx.fillStyle = `hsla(${hue}, 100%, 50%, 0.2)`;
+          ctx.fillRect(x, height - barHeight - 10, barWidth, 10);
+        }
+        
+        x += barWidth + 1;
+      }
+      
+      // 继续动画循环
+      animationId = requestAnimationFrame(drawSpectrum);
+    }
+    
+    // 事件监听
+    function setupEventListeners() {
+      // 开始/停止按钮
+      startBtn.addEventListener('click', startAnalysis);
+      
+      // APRS解码按钮
+      aprsDecodeBtn.addEventListener('click', toggleAprsDecoding);
+      
+      // 清空APRS数据按钮
+      clearAprsDataBtn.addEventListener('click', () => {
+        aprsDataContainer.innerHTML = '<div class="text-slate-500 italic"><i class="fa fa-info-circle"></i> The data has been cleared, waiting for a new APRS signal....</div>';
+        lastAprsUpdate.textContent = '从未';
+      });
+      
+      // 关闭提示框
+      closePermissionToast.addEventListener('click', () => {
+        permissionToast.classList.add('hidden');
+      });
+      
+      closeErrorToast.addEventListener('click', () => {
+        errorToast.classList.add('hidden');
+      });
+      
+      // 帮助按钮
+      helpBtn.addEventListener('click', () => {
+        helpModal.classList.remove('hidden');
+        helpModal.classList.add('flex');
+      });
+      
+      // 关闭帮助按钮
+      closeHelpBtn.addEventListener('click', () => {
+        helpModal.classList.remove('flex');
+        helpModal.classList.add('hidden');
+      });
+      
+      // 点击帮助模态框外部关闭
+      helpModal.addEventListener('click', (e) => {
+        if (e.target === helpModal) {
+          helpModal.classList.remove('flex');
+          helpModal.classList.add('hidden');
+        }
+      });
+    }
+    
+    // 初始化应用
+    function initApp() {
+      initCanvas();
+      setupEventListeners();
+      
+      // 检查浏览器支持
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        errorMessage.textContent = 'Your browser does not support audio capture functionality, please use the latest version of Chrome, Firefox, or Edge browser.。';
+        showToast(errorToast, 10000);
+        startBtn.disabled = true;
+        aprsDecodeBtn.disabled = true;
+      }
+    }
+    
+    // 页面加载完成后初始化
+    window.addEventListener('load', initApp);
+  </script>
+</body>
+</html>
